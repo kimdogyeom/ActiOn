@@ -13,3 +13,8 @@ ENV/
 *.m4a
 *.wav
 uploads/
+
+./service_spec.md
+./task.md
+./tech_stack.md
+./guideline.md
