@@ -20,3 +20,5 @@ service_spec.md
 task.md
 tech_stack.md
 guideline.md
+
+*.db
