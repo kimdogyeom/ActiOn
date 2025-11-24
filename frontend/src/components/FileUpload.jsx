@@ -6,6 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 function FileUpload({ setStatus, setResult, setError }) {
   const [selectedFile, setSelectedFile] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [destination, setDestination] = useState('notion') // 'notion' or 'internal'
 
   const handleFileSelect = (e) => {
     const file = e.target.files[0]
@@ -43,7 +44,7 @@ function FileUpload({ setStatus, setResult, setError }) {
       setError(null)
 
       const response = await axios.post(
-        `${API_URL}/process-full-workflow`,
+        `${API_URL}/process-full-workflow?destination=${destination}`,
         formData,
         {
           headers: {
@@ -62,6 +63,95 @@ function FileUpload({ setStatus, setResult, setError }) {
 
   return (
     <div className="space-y-6">
+      {/* 저장 위치 선택 */}
+      <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-6 border border-purple-200">
+        <h3 className="font-semibold text-gray-900 mb-4">저장 위치 선택</h3>
+        <div className="flex gap-4">
+          <label className="flex-1 cursor-pointer">
+            <div
+              className={`border-2 rounded-lg p-4 transition-all ${
+                destination === 'notion'
+                  ? 'border-indigo-500 bg-indigo-50 shadow-md'
+                  : 'border-gray-300 bg-white hover:border-indigo-300'
+              }`}
+            >
+              <input
+                type="radio"
+                name="destination"
+                value="notion"
+                checked={destination === 'notion'}
+                onChange={(e) => setDestination(e.target.value)}
+                className="sr-only"
+              />
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-semibold text-gray-900 mb-1">
+                    📝 Notion
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    Notion 데이터베이스에 저장
+                  </div>
+                </div>
+                {destination === 'notion' && (
+                  <svg
+                    className="h-6 w-6 text-indigo-600"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+              </div>
+            </div>
+          </label>
+          <label className="flex-1 cursor-pointer">
+            <div
+              className={`border-2 rounded-lg p-4 transition-all ${
+                destination === 'internal'
+                  ? 'border-indigo-500 bg-indigo-50 shadow-md'
+                  : 'border-gray-300 bg-white hover:border-indigo-300'
+              }`}
+            >
+              <input
+                type="radio"
+                name="destination"
+                value="internal"
+                checked={destination === 'internal'}
+                onChange={(e) => setDestination(e.target.value)}
+                className="sr-only"
+              />
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="font-semibold text-gray-900 mb-1">
+                    📋 칸반보드
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    내부 칸반보드에 저장
+                  </div>
+                </div>
+                {destination === 'internal' && (
+                  <svg
+                    className="h-6 w-6 text-indigo-600"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
       <div
         className={`border-2 border-dashed rounded-xl p-12 text-center transition-colors ${
           isDragging
