@@ -14,7 +14,7 @@ ENV/
 *.wav
 uploads/
 
-./service_spec.md
-./task.md
-./tech_stack.md
-./guideline.md
+.service_spec.md
+.task.md
+.tech_stack.md
+.guideline.md
