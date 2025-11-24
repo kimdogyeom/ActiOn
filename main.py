@@ -1,5 +1,6 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 import os
 import uuid
 import logging
@@ -16,9 +17,14 @@ from models import (
     ProcessTranscriptRequest,
     ProcessTranscriptResponse,
     PushToNotionRequest,
-    PushToNotionResponse
+    PushToNotionResponse,
+    SaveDestination,
+    TaskResponse,
+    TaskUpdateRequest,
+    TasksResponse
 )
 from config import settings
+from database import init_db, get_db, Task, TaskStatus
 
 # 로깅 설정
 logging.basicConfig(
@@ -48,6 +54,9 @@ bedrock_service = BedrockService()
 s3_service = S3Service()
 llm_service = LLMService()
 notion_service = NotionService()
+
+# 데이터베이스 초기화
+init_db()
 
 
 @app.get("/")
@@ -224,17 +233,22 @@ async def push_to_notion(request: PushToNotionRequest):
 
 
 @app.post("/process-full-workflow")
-async def process_full_workflow(file: UploadFile = File(...)):
+async def process_full_workflow(
+    file: UploadFile = File(...),
+    destination: str = "notion",
+    db: Session = Depends(get_db)
+):
     """
-    Complete workflow: Upload -> Transcribe -> Extract -> Push to Notion.
+    Complete workflow: Upload -> Transcribe -> Extract -> Save (Notion or Internal).
     
     Args:
         file: Audio file
+        destination: "notion" or "internal" (default: "notion")
         
     Returns:
         Complete workflow result
     """
-    logger.info(f"Starting full workflow for file: {file.filename}")
+    logger.info(f"Starting full workflow for file: {file.filename} with destination: {destination}")
     
     # 1. 파일 업로드 및 STT
     upload_result = await upload_audio(file)
@@ -254,21 +268,56 @@ async def process_full_workflow(file: UploadFile = File(...)):
         logger.error("Action item extraction failed in full workflow")
         raise HTTPException(status_code=500, detail="Action item extraction failed")
     
-    # 3. Notion에 푸시
-    notion_request = PushToNotionRequest(
-        action_items=[item.dict() for item in process_result.action_items]
-    )
-    notion_result = await push_to_notion(notion_request)
-    
-    logger.info(f"Full workflow completed for job: {upload_result.job_name}")
-    
-    return {
-        "status": "success",
-        "job_name": upload_result.job_name,
-        "summary": process_result.summary,
-        "action_items_count": len(process_result.action_items),
-        "notion_result": notion_result
-    }
+    # 3. 선택한 목적지에 저장
+    if destination == "notion":
+        # Notion에 푸시
+        notion_request = PushToNotionRequest(
+            action_items=[item.dict() for item in process_result.action_items]
+        )
+        notion_result = await push_to_notion(notion_request)
+        
+        logger.info(f"Full workflow completed for job: {upload_result.job_name}")
+        
+        return {
+            "status": "success",
+            "job_name": upload_result.job_name,
+            "summary": process_result.summary,
+            "action_items_count": len(process_result.action_items),
+            "destination": "notion",
+            "notion_result": notion_result
+        }
+    else:
+        # 내부 DB에 저장
+        saved_tasks = []
+        for item in process_result.action_items:
+            task = Task(
+                assignee=item.assignee,
+                task=item.task,
+                due_date=item.due_date,
+                confidence=item.confidence,
+                status=TaskStatus.TODO,
+                job_name=upload_result.job_name
+            )
+            db.add(task)
+            db.commit()
+            db.refresh(task)
+            saved_tasks.append({
+                "id": task.id,
+                "assignee": task.assignee,
+                "task": task.task,
+                "status": task.status.value
+            })
+        
+        logger.info(f"Saved {len(saved_tasks)} tasks to internal DB")
+        
+        return {
+            "status": "success",
+            "job_name": upload_result.job_name,
+            "summary": process_result.summary,
+            "action_items_count": len(process_result.action_items),
+            "destination": "internal",
+            "saved_tasks": saved_tasks
+        }
 
 
 @app.get("/health")
@@ -302,6 +351,132 @@ def get_notion_database_info():
             "status": "error",
             "error": str(e)
         }
+
+
+@app.get("/tasks", response_model=TasksResponse)
+def get_tasks(
+    status: str = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get all tasks from internal database.
+    
+    Args:
+        status: Filter by status (optional)
+        
+    Returns:
+        List of tasks
+    """
+    try:
+        query = db.query(Task)
+        
+        if status:
+            query = query.filter(Task.status == status)
+        
+        tasks = query.order_by(Task.created_at.desc()).all()
+        
+        task_list = [
+            TaskResponse(
+                id=task.id,
+                assignee=task.assignee,
+                task=task.task,
+                due_date=task.due_date,
+                confidence=task.confidence,
+                status=task.status.value,
+                job_name=task.job_name,
+                created_at=task.created_at.isoformat(),
+                updated_at=task.updated_at.isoformat()
+            )
+            for task in tasks
+        ]
+        
+        return TasksResponse(
+            status="success",
+            tasks=task_list,
+            total=len(task_list)
+        )
+    except Exception as e:
+        logger.error(f"Error fetching tasks: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/tasks/{task_id}/status")
+def update_task_status(
+    task_id: int,
+    request: TaskUpdateRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Update task status.
+    
+    Args:
+        task_id: Task ID
+        request: TaskUpdateRequest with new status
+        
+    Returns:
+        Updated task
+    """
+    try:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        task.status = TaskStatus(request.status)
+        task.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(task)
+        
+        return TaskResponse(
+            id=task.id,
+            assignee=task.assignee,
+            task=task.task,
+            due_date=task.due_date,
+            confidence=task.confidence,
+            status=task.status.value,
+            job_name=task.job_name,
+            created_at=task.created_at.isoformat(),
+            updated_at=task.updated_at.isoformat()
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating task: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/tasks/{task_id}")
+def delete_task(
+    task_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a task.
+    
+    Args:
+        task_id: Task ID
+        
+    Returns:
+        Success message
+    """
+    try:
+        task = db.query(Task).filter(Task.id == task_id).first()
+        
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        db.delete(task)
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Task {task_id} deleted successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting task: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
