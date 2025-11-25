@@ -7,10 +7,9 @@ class S3Service:
     """Service for handling S3 file uploads."""
     
     def __init__(self):
+        # EC2 IAM 역할을 사용하여 자동으로 인증
         self.client = boto3.client(
             's3',
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
             region_name=settings.aws_region
         )
         self.bucket_name = settings.s3_bucket_name

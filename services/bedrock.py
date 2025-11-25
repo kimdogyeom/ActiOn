@@ -7,10 +7,9 @@ class BedrockService:
     """Service for AWS Bedrock client connection."""
     
     def __init__(self):
+        # EC2 IAM 역할을 사용하여 자동으로 인증
         self.bedrock_runtime = boto3.client(
             service_name='bedrock-runtime',
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
             region_name=settings.aws_region
         )
         
