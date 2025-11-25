@@ -12,12 +12,7 @@ class TranscriptionService:
     """Service for handling audio transcription using Amazon Transcribe."""
     
     def __init__(self):
-        self.client = boto3.client(
-            'transcribe',
-            aws_access_key_id=settings.aws_access_key_id,
-            aws_secret_access_key=settings.aws_secret_access_key,
-            region_name=settings.aws_region
-        )
+        self.client = boto3.client(**settings.get_aws_client_kwargs('transcribe'))
     
     def transcribe_audio(self, audio_file_path: str, job_name: str) -> Dict:
         """
