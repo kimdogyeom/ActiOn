@@ -11,9 +11,6 @@ env/
 ENV/
 .vscode/
 .idea/
-*.mp3
-*.m4a
-*.wav
 uploads/
 
 service_spec.md
