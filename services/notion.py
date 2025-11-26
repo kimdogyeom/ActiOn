@@ -46,7 +46,7 @@ class NotionService:
         
         # Status 추가 (존재하는 경우)
         properties["Status"] = {
-            "select": {
+            "status": {
                 "name": "To Do"
             }
         }
